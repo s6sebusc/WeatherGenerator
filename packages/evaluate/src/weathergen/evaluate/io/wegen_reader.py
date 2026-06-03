@@ -533,9 +533,12 @@ class WeatherGenZarrReader(WeatherGenReader):
         merged = {}
         for fstep, das in all_das.items():
             combined = xr.concat(das, dim="sample") if len(das) > 1 else das[0]
-            merged[fstep] = combined.assign_coords(
-                sample=global_sample_coords[: len(combined.sample)]
-            )
+            if "sample" in combined.dims:
+                merged[fstep] = combined.assign_coords(
+                    sample=global_sample_coords[: len(combined.sample)]
+                )
+            else:
+                merged[fstep] = combined
         return merged
 
     def get_data(
