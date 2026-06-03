@@ -689,7 +689,9 @@ class Model(torch.nn.Module):
         shape = (len(batch), batch.get_num_steps(), *tokens.shape[1:])
         # collapse along input step dimension
         tokens = tokens.reshape(shape).sum(axis=1)
-
+        noise_std = 1e-4
+        if noise_std > 0.0:
+            tokens = tokens + torch.randn_like(tokens) * torch.norm(tokens) * noise_std
         # Allow for pushforward trick
         p_fwd = self.cf.training_config.get("forecast", {}).get("pushforward", False)
         # roll-out in latent space, iterate and generate output over requested output steps
