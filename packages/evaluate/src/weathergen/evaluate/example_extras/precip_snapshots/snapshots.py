@@ -17,6 +17,7 @@ regions = dict(
     Africa_Sahel_Central = (-15, 45, -10, 20),
     Southern_Africa = (10, 40, -35, -10),
     Biparjoy= (55,75,0,20),
+    North_Atlantic = (-80, 0, 0, 60),
 )
 
 def plot_tp_forecast_vs_target(
@@ -94,9 +95,9 @@ def plot_tp_forecast_vs_target(
     plt.close(fig)
     return 0
 
-#plot_tp_forecast_vs_target("z71y2ik8", sample=9, forecast_step=10, regname="Europe")
-#plot_tp_forecast_vs_target("yz3h0kyn", sample=9, forecast_step=10, regname="Europe")
-plot_tp_forecast_vs_target("z71y2ik8", sample=5, forecast_step=20, regname="Maritime_continent")
-plot_tp_forecast_vs_target("yz3h0kyn", sample=5, forecast_step=20, regname="Maritime_continent")
+plot_tp_forecast_vs_target("z71y2ik8", sample=0, forecast_step=15, regname="North_Atlantic")
+plot_tp_forecast_vs_target("yz3h0kyn", sample=0, forecast_step=15, regname="North_Atlantic")
+#plot_tp_forecast_vs_target("z71y2ik8", sample=9, forecast_step=15, regname="South_America_Brazil")
+#plot_tp_forecast_vs_target("yz3h0kyn", sample=9, forecast_step=15, regname="South_America_Brazil")
 #plot_tp_forecast_vs_target("z71y2ik8", sample=5, forecast_step=20, regname="Biparjoy")
 #plot_tp_forecast_vs_target("yz3h0kyn", sample=5, forecast_step=20, regname="Biparjoy")
