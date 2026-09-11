@@ -24,7 +24,6 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from itertools import product
 
-
 def geo_ageo(ds):
     z = ds.z / 9.81 * units.m
     u = ds.u * units.m / units.s
@@ -34,7 +33,6 @@ def geo_ageo(ds):
     Vg = np.sqrt(ug**2+vg**2).where( (np.abs(ug.lat)>30) & (np.abs(ug.lat)<85) )
     Vag = np.sqrt(uag**2+vag**2).where( (np.abs(ug.lat)>30) & (np.abs(ug.lat)<85) )
     return Vg, Vag
-
 
 def compute_time_step(dat, time_index, step_index):
     # go from reduced to full Gaussian
@@ -52,8 +50,9 @@ basepath = Path("/p/scratch/weatherai/shared/weather_generator_data/")
 outpath = Path("./data/")
 outpath.mkdir(exist_ok=True, parents=True)
 ranks = [0,1]
-selsteps = [ np.timedelta64(s, "h") for s in np.arange(6,246,6) ]
-n_jobs = 20
+selsteps = [24, 120, 240]
+selsteps = [ np.timedelta64(s, "h") for s in selsteps ]
+n_jobs = 3
 nst = len(selsteps)
 
 for rank in ranks:
@@ -95,12 +94,3 @@ for rank in ranks:
         )
     )
     res.to_netcdf(outfile)
-
-# example plot in matplotlib
-# I think it makes the most sense to average the wind speeds first 
-# and the take the ratio instead of averaging over ratios
-#ratio = res.Vag.mean("time") / res.Vg.mean("time")
-#ratio["step"] = ratio["step"] / np.timedelta64(1, 'h')
-#ratio.plot(hue="step",y="isobaricInhPa")
-#plt.gca().invert_yaxis()
-#plt.savefig("geostrophic_ratio_plot.png")
