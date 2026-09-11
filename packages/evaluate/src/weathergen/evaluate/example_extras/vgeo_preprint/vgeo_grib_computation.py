@@ -2,12 +2,15 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "cfgrib>=0.9.15.1",
-#     "eccodes>=2.48.0",
+#     "eccodes>=2.44.0",
+#     "matplotlib",
 #     "metpy>=1.7.1",
 #     "netcdf4>=1.7.4",
-#     "numpy>=2.5.2",
-#     "tqdm>=4.70.0",
-#     "xarray>=2026.7.0",
+#     "numpy~=2.2",
+#     "scipy",
+#     "tqdm",
+#     "xarray>=2025.6.1",
+#     "joblib",
 # ]
 # ///
 import xarray as xr
@@ -15,20 +18,12 @@ import numpy as np
 from utils import regularise_dataset
 from metpy.calc import geostrophic_wind, ageostrophic_wind
 from metpy.units import units
+from joblib import Parallel, delayed
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from pathlib import Path
+from itertools import product
 
-
-infile = "/p/scratch/weatherai/shared/weather_generator_data/prediction_pl_nh0_ja7f_rank0000.grib"
-outfile = "geostrophic_wind_profile.nc"
-selsteps = [ np.timedelta64(s, "h") for s in [24,120,240] ]
-nst = len(selsteps)
-
-dat = xr.open_dataset(infile)[["u","v","z"]]
-dat = dat.sel(step=selsteps)
-times = dat.time
-nt = len(times)
-nlev = dat.isobaricInhPa.size
 
 def geo_ageo(ds):
     z = ds.z / 9.81 * units.m
@@ -40,36 +35,72 @@ def geo_ageo(ds):
     Vag = np.sqrt(uag**2+vag**2).where( (np.abs(ug.lat)>30) & (np.abs(ug.lat)<85) )
     return Vg, Vag
 
-# loop over time and steps, could easily be parallelized
-# could also be done with apply_ufunc but that was slow for some reason
-all_Vg, all_Vag = np.zeros((nt, nst,nlev)), np.zeros((nt, nst,nlev))
-for i in tqdm(range(nt)):
-    for j in range(nst):
-        # go from reduced to full Gaussian
-        dat_r = regularise_dataset(dat.isel(time=i,step=j), gridpointdim="values").drop_vars("valid_time")
-        # compute geostrophic and ageostrophic wind speeds
-        Vg, Vag = geo_ageo(dat_r)
-        w = np.cos(np.deg2rad(Vg.lat))
-        all_Vg[i,j,:] = Vg.weighted(w).mean(["lon","lat"])
-        all_Vag[i,j,:] = Vag.weighted(w).mean(["lon","lat"])
-       
-# store the results as netcdf
-res = xr.Dataset(
-    data_vars=dict(
-        Vg=(["time","step","isobaricInhPa"], all_Vg),
-        Vag=(["time","step","isobaricInhPa"], all_Vag),
-    ),
-    coords=dict(
-        dat.coords
+
+def compute_time_step(dat, time_index, step_index):
+    # go from reduced to full Gaussian
+    dat_r = regularise_dataset(
+        dat.isel(time=time_index, step=step_index), gridpointdim="values"
+    ).drop_vars("valid_time")
+    # compute geostrophic and ageostrophic wind speeds
+    Vg, Vag = geo_ageo(dat_r)
+    w = np.cos(np.deg2rad(Vg.lat))
+    profile_Vg = Vg.weighted(w).mean(["lon", "lat"])
+    profile_Vag = Vag.weighted(w).mean(["lon", "lat"])
+    return time_index, step_index, profile_Vg, profile_Vag
+
+basepath = Path("/p/scratch/weatherai/shared/weather_generator_data/")
+outpath = Path("./data/")
+outpath.mkdir(exist_ok=True, parents=True)
+ranks = [0,1]
+selsteps = [ np.timedelta64(s, "h") for s in np.arange(6,246,6) ]
+n_jobs = 20
+nst = len(selsteps)
+
+for rank in ranks:
+    infile = basepath / f"prediction_pl_nh0_ja7f_rank{rank:04}.grib" #"/p/scratch/weatherai/shared/weather_generator_data/.grib"
+    outfile = outpath / f"geostrophic_wind_profile_rank{rank:04}.nc"
+    if outfile.exists():
+        print(f"result already present at {outfile}")
+        continue
+    
+    dat = xr.open_dataset(infile)[["u","v","z"]]
+    dat = dat.sel(step=selsteps)
+    times = dat.time
+    nt = len(times)
+    nlev = dat.isobaricInhPa.size
+
+    # apply_ufunc was slow for this calculation, so parallelise each
+    # independent time-step pair.
+    all_Vg, all_Vag = np.zeros((nt, nst,nlev)), np.zeros((nt, nst,nlev))
+    
+    jobs = list(product(range(nt), range(nst)))
+    results = Parallel(n_jobs=n_jobs, backend="threading")(
+        delayed(compute_time_step)(dat, i, j)
+        for i, j in tqdm(jobs, desc=f"rank {rank}")
     )
-)
-res.to_netcdf(outfile)
+    for i, j, profile_Vg, profile_Vag in results:
+        all_Vg[i, j, :] = profile_Vg
+        all_Vag[i, j, :] = profile_Vag
+        
+    # store the results as netcdf
+    res = xr.Dataset(
+        data_vars=dict(
+            Vg=(["time","step","isobaricInhPa"], all_Vg),
+            Vag=(["time","step","isobaricInhPa"], all_Vag),
+        ),
+        coords=dict(
+            time=dat.time,
+            step=dat.step,
+            isobaricInhPa=dat.isobaricInhPa,
+        )
+    )
+    res.to_netcdf(outfile)
 
 # example plot in matplotlib
 # I think it makes the most sense to average the wind speeds first 
 # and the take the ratio instead of averaging over ratios
-ratio = res.Vag.mean("time") / res.Vg.mean("time")
-ratio["step"] = ratio["step"] / np.timedelta64(1, 'h')
-ratio.plot(hue="step",y="isobaricInhPa")
-plt.gca().invert_yaxis()
-plt.savefig("geostrophic_ratio_plot.png")
+#ratio = res.Vag.mean("time") / res.Vg.mean("time")
+#ratio["step"] = ratio["step"] / np.timedelta64(1, 'h')
+#ratio.plot(hue="step",y="isobaricInhPa")
+#plt.gca().invert_yaxis()
+#plt.savefig("geostrophic_ratio_plot.png")
